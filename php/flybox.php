@@ -39,16 +39,17 @@ class Flybox {
       throw new Exception('Flybox base URL cannot be empty');
     }
     
-    if(!$this->login()) {
+    if(!$this->tryLogin()) {
       throw new Exception('Error logging in');
     }
   }
 
-  function api($path, $data=null, $auth=true) {
+  function api($path, $data=null, $auth=true, $reset_cookie=false) {
     // if auth needed, login
     // false for login/token requests
-    if($auth && !$this->is_logged_in() && !$this->login()) {
-      throw new Exception('Unable to login');
+    if($auth && !$this->is_logged_in() && !$this->tryLogin()) {
+      my_log('Unable to login');
+      return false;
     }
     
     $method = 'GET';
@@ -58,7 +59,8 @@ class Flybox {
       $method = 'POST';
       $token = $this->get_token();
       if($token === false) {
-        throw new Exception('Unable to get token');
+        my_log('Unable to get token');
+        return false;
       }
       array_push($headers, '__RequestVerificationToken: '.$token);
     }
@@ -90,6 +92,17 @@ class Flybox {
     }
     return $data;
   }
+  
+  function tryLogin($tries=3) {
+    // often fails so try 3 times by default
+    while($tries-- >= 0) {
+      if($this->login()) {
+        return true;
+      }
+      error_log('failed login attempt');
+    }
+    return false;
+  }
 
   function login() {
     // see popins.js & xml.js & main.js
@@ -99,7 +112,7 @@ class Flybox {
     $data .= '<firstnonce>'.$cnonce.'</firstnonce>';
     $data .= '<mode>1</mode></request>';
     // POST data requests get_token, which create a SessionID
-    $res = $this->api('/user/challenge_login', $data, false);
+    $res = $this->api('/user/challenge_login', $data, false, true);
     if($res === false) return false;
     
     if(empty($res['salt']) || empty($res['servernonce']) || empty($res['iterations'])) {
@@ -126,7 +139,7 @@ class Flybox {
   function is_logged_in() {
     $res = $this->api('/user/state-login', null, false);
     // State: -1 logout, 0 logged in; username string if logged in
-    return $res['State'] == 0;
+    return isset($res['State']) && $res['State'] == 0;
   }
 
   function get_token() {
